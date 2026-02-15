@@ -5,17 +5,30 @@ defmodule SpaceShoot.Game do
 
   @canvas_width 800
   @canvas_height 600
+  @speed 5.0
 
   def initial_state do
     %{
+      keys: MapSet.new(),
       sprites: [
-        %{x: 100.0, y: 100.0, vx: 3.0, vy: 2.0, image: "logo.svg", width: 64, height: 64}
+        %{x: 100.0, y: 100.0, image: "logo.svg", width: 64, height: 64}
       ]
     }
   end
 
+  def key_down(state, key) when key in ~w(ArrowUp ArrowDown ArrowLeft ArrowRight) do
+    %{state | keys: MapSet.put(state.keys, key)}
+  end
+
+  def key_down(state, _key), do: state
+
+  def key_up(state, key) do
+    %{state | keys: MapSet.delete(state.keys, key)}
+  end
+
   def tick(state) do
-    %{state | sprites: Enum.map(state.sprites, &move_sprite/1)}
+    {dx, dy} = velocity_from_keys(state.keys)
+    %{state | sprites: Enum.map(state.sprites, &move_sprite(&1, dx, dy))}
   end
 
   def render_sprites(state) do
@@ -24,17 +37,33 @@ defmodule SpaceShoot.Game do
     end)
   end
 
-  defp move_sprite(s) do
-    new_x = s.x + s.vx
-    new_y = s.y + s.vy
+  defp velocity_from_keys(keys) do
+    dx =
+      cond do
+        MapSet.member?(keys, "ArrowLeft") and MapSet.member?(keys, "ArrowRight") -> 0.0
+        MapSet.member?(keys, "ArrowLeft") -> -@speed
+        MapSet.member?(keys, "ArrowRight") -> @speed
+        true -> 0.0
+      end
 
-    {new_x, vx} = bounce(new_x, s.vx, @canvas_width - s.width)
-    {new_y, vy} = bounce(new_y, s.vy, @canvas_height - s.height)
+    dy =
+      cond do
+        MapSet.member?(keys, "ArrowUp") and MapSet.member?(keys, "ArrowDown") -> 0.0
+        MapSet.member?(keys, "ArrowUp") -> -@speed
+        MapSet.member?(keys, "ArrowDown") -> @speed
+        true -> 0.0
+      end
 
-    %{s | x: new_x, y: new_y, vx: vx, vy: vy}
+    {dx, dy}
   end
 
-  defp bounce(pos, vel, _max) when pos <= 0, do: {-pos, abs(vel)}
-  defp bounce(pos, vel, max) when pos >= max, do: {2 * max - pos, -abs(vel)}
-  defp bounce(pos, vel, _max), do: {pos, vel}
+  defp move_sprite(s, dx, dy) do
+    new_x = clamp(s.x + dx, 0.0, @canvas_width - s.width)
+    new_y = clamp(s.y + dy, 0.0, @canvas_height - s.height)
+    %{s | x: new_x, y: new_y}
+  end
+
+  defp clamp(val, min, max) do
+    val |> max(min) |> min(max)
+  end
 end
