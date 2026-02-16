@@ -3,7 +3,7 @@ defmodule SpaceShootWeb.GameLive do
 
   alias SpaceShoot.Game
 
-  @tick_ms 33
+  @tick_ms 10
 
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -57,7 +57,7 @@ defmodule SpaceShootWeb.GameLive do
         return imageCache[src];
       }
 
-      const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+      const GAME_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "]);
 
       export default {
         mounted() {
@@ -70,14 +70,14 @@ defmodule SpaceShootWeb.GameLive do
           });
 
           this._onKeyDown = (e) => {
-            if (ARROW_KEYS.has(e.key)) {
+            if (GAME_KEYS.has(e.key)) {
               e.preventDefault();
               this.pushEvent("keydown", {key: e.key});
             }
           };
 
           this._onKeyUp = (e) => {
-            if (ARROW_KEYS.has(e.key)) {
+            if (GAME_KEYS.has(e.key)) {
               e.preventDefault();
               this.pushEvent("keyup", {key: e.key});
             }
@@ -91,7 +91,17 @@ defmodule SpaceShootWeb.GameLive do
             for (const s of this.sprites) {
               const img = loadImage(s.image);
               if (img.complete) {
-                this.ctx.drawImage(img, s.x, s.y, s.width, s.height);
+                if (s.rotation) {
+                  const cx = s.x + s.width / 2;
+                  const cy = s.y + s.height / 2;
+                  this.ctx.save();
+                  this.ctx.translate(cx, cy);
+                  this.ctx.rotate(s.rotation);
+                  this.ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, -s.width / 2, -s.height / 2, s.width, s.height);
+                  this.ctx.restore();
+                } else {
+                  this.ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, s.x, s.y, s.width, s.height);
+                }
               }
             }
             this.frameId = requestAnimationFrame(draw);
