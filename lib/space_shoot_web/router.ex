@@ -19,6 +19,7 @@ defmodule SpaceShootWeb.Router do
 
     get "/", PageController, :home
     live "/game", GameLive
+    live "/workspace", WorkspaceLive
   end
 
   # Other scopes may use custom stacks.

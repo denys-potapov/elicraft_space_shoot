@@ -1,11 +1,6 @@
 defmodule SpaceShoot.Game do
   @moduledoc """
-  Game state and tick logic using component-based entities.
-
-  Entities are plain maps. Components are optional keys:
-    :position, :size, :sprite, :rotation, :velocity,
-    :health, :owner, :explosion, :input
-  Systems pattern-match on component presence.
+  Game state and per-tick update logic for SpaceShoot.
   """
 
   @canvas_width 800
@@ -14,6 +9,7 @@ defmodule SpaceShoot.Game do
   @bullet_speed 7.0
   @enemy_bullet_speed 4.0
   @explosion_frame_ticks 5
+  @bullet_half_width 8
 
   # Spritesheet layout: tile size + 1px gap between tiles
   defp ship_sprite(col, row) do
@@ -40,8 +36,8 @@ defmodule SpaceShoot.Game do
   def initial_state do
     %{
       player: %{
-        position: {400.0, 500.0},
-        size: {32, 32},
+        position: %{x: 400.0, y: 500.0},
+        size: %{w: 32, h: 32},
         sprite: ship_sprite(0, 0),
         rotation: :math.pi() / 2,
         health: :alive,
@@ -59,8 +55,8 @@ defmodule SpaceShoot.Game do
 
     for row <- 0..(@enemy_rows - 1), col <- 0..(@enemy_cols - 1) do
       %{
-        position: {offset_x + col * @enemy_spacing_x, 40.0 + row * @enemy_spacing_y},
-        size: {32, 32},
+        position: %{x: offset_x + col * @enemy_spacing_x, y: 40.0 + row * @enemy_spacing_y},
+        size: %{w: 32, h: 32},
         sprite: ship_sprite(rem(row, 4), 1),
         rotation: -:math.pi() / 2,
         health: :alive
@@ -71,15 +67,17 @@ defmodule SpaceShoot.Game do
   # --- Input ---
 
   def key_down(state, " ") do
-    {px, py} = state.player.position
-    {pw, _ph} = state.player.size
+    player = state.player
 
     bullet = %{
-      position: {px + pw / 2 - 8, py},
-      size: {16, 16},
+      position: %{
+        x: player.position.x + player.size.w / 2 - @bullet_half_width,
+        y: player.position.y
+      },
+      size: %{w: 16, h: 16},
       sprite: @bullet_sprite,
       rotation: 0.0,
-      velocity: {0.0, -@bullet_speed},
+      velocity: %{x: 0.0, y: -@bullet_speed},
       owner: :player
     }
 
@@ -100,27 +98,27 @@ defmodule SpaceShoot.Game do
 
   def tick(state) do
     state
-    |> input_system()
-    |> formation_system()
-    |> enemy_fire_system()
-    |> movement_system()
-    |> boundary_system()
-    |> collision_system()
-    |> explosion_system()
+    |> move_player()
+    |> move_enemies()
+    |> maybe_enemy_shoot()
+    |> move_bullets()
+    |> remove_offscreen_bullets()
+    |> check_bullet_hits()
+    |> animate_explosions()
   end
 
-  # --- InputSystem ---
+  # --- Move Player ---
 
-  defp input_system(state) do
+  defp move_player(state) do
     keys = state.player.input
-    {dx, dy} = velocity_from_keys(keys)
-    {px, py} = state.player.position
-    {pw, ph} = state.player.size
+    %{x: dx, y: dy} = velocity_from_keys(keys)
+    pos = state.player.position
+    size = state.player.size
 
-    new_x = clamp(px + dx, 0.0, @canvas_width - pw)
-    new_y = clamp(py + dy, 0.0, @canvas_height - ph)
+    new_x = clamp(pos.x + dx, 0.0, @canvas_width - size.w)
+    new_y = clamp(pos.y + dy, 0.0, @canvas_height - size.h)
 
-    put_in(state.player.position, {new_x, new_y})
+    put_in(state.player.position, %{x: new_x, y: new_y})
   end
 
   defp velocity_from_keys(keys) do
@@ -140,48 +138,46 @@ defmodule SpaceShoot.Game do
         true -> 0.0
       end
 
-    {dx, dy}
+    %{x: dx, y: dy}
   end
 
-  # --- FormationSystem ---
+  # --- Move Enemies ---
 
-  defp formation_system(state) do
+  defp move_enemies(state) do
     dx = if state.enemy_dir == :left, do: -@enemy_speed, else: @enemy_speed
 
-    hit_edge? =
-      Enum.any?(state.enemies, fn e ->
-        {ex, _ey} = e.position
-        {ew, _eh} = e.size
-
-        case state.enemy_dir do
-          :left -> ex + dx <= 0
-          :right -> ex + dx + ew >= @canvas_width
-        end
-      end)
-
-    if hit_edge? do
-      enemies =
-        Enum.map(state.enemies, fn e ->
-          {ex, ey} = e.position
-          %{e | position: {ex, ey + @enemy_drop}}
-        end)
-
+    if enemies_hit_edge?(state.enemies, state.enemy_dir, dx) do
       new_dir = if state.enemy_dir == :left, do: :right, else: :left
-      %{state | enemies: enemies, enemy_dir: new_dir}
+      %{state | enemies: drop_enemies(state.enemies), enemy_dir: new_dir}
     else
-      enemies =
-        Enum.map(state.enemies, fn e ->
-          {ex, ey} = e.position
-          %{e | position: {ex + dx, ey}}
-        end)
-
-      %{state | enemies: enemies}
+      %{state | enemies: shift_enemies(state.enemies, dx)}
     end
   end
 
-  # --- EnemyFireSystem ---
+  defp enemies_hit_edge?(enemies, direction, dx) do
+    Enum.any?(enemies, fn e ->
+      case direction do
+        :left -> e.position.x + dx <= 0
+        :right -> e.position.x + dx + e.size.w >= @canvas_width
+      end
+    end)
+  end
 
-  defp enemy_fire_system(state) do
+  defp drop_enemies(enemies) do
+    Enum.map(enemies, fn e ->
+      put_in(e.position.y, e.position.y + @enemy_drop)
+    end)
+  end
+
+  defp shift_enemies(enemies, dx) do
+    Enum.map(enemies, fn e ->
+      put_in(e.position.x, e.position.x + dx)
+    end)
+  end
+
+  # --- Maybe Enemy Shoot ---
+
+  defp maybe_enemy_shoot(state) do
     flying_count = Enum.count(state.bullets, &(&1.owner == :enemy))
 
     if flying_count >= @max_enemy_bullets do
@@ -191,16 +187,17 @@ defmodule SpaceShoot.Game do
 
       new_bullets =
         Enum.reduce(shooters, [], fn enemy, acc ->
-          if :rand.uniform(@enemy_fire_chance) == 1 and flying_count + length(acc) < @max_enemy_bullets do
-            {ex, ey} = enemy.position
-            {ew, eh} = enemy.size
-
+          if :rand.uniform(@enemy_fire_chance) == 1 and
+               flying_count + length(acc) < @max_enemy_bullets do
             bullet = %{
-              position: {ex + ew / 2 - 8, ey + eh},
-              size: {16, 16},
+              position: %{
+                x: enemy.position.x + enemy.size.w / 2 - @bullet_half_width,
+                y: enemy.position.y + enemy.size.h
+              },
+              size: %{w: 16, h: 16},
               sprite: @bullet_sprite,
               rotation: :math.pi(),
-              velocity: {0.0, @enemy_bullet_speed},
+              velocity: %{x: 0.0, y: @enemy_bullet_speed},
               owner: :enemy
             }
 
@@ -216,87 +213,87 @@ defmodule SpaceShoot.Game do
 
   defp bottom_enemies(enemies) do
     enemies
-    |> Enum.group_by(fn e -> round(elem(e.position, 0)) end)
-    |> Enum.map(fn {_col, col_enemies} ->
-      Enum.max_by(col_enemies, fn e -> elem(e.position, 1) end)
-    end)
+    |> Enum.sort_by(fn e -> -e.position.y end)
+    |> Enum.uniq_by(fn e -> round(e.position.x) end)
   end
 
-  # --- MovementSystem ---
+  # --- Move Bullets ---
 
-  defp movement_system(state) do
+  defp move_bullets(state) do
     bullets =
-      Enum.map(state.bullets, fn
-        %{velocity: {vx, vy}, position: {x, y}} = b ->
-          %{b | position: {x + vx, y + vy}}
-
-        b ->
+      Enum.map(state.bullets, fn b ->
+        if Map.has_key?(b, :velocity) do
+          %{b | position: %{x: b.position.x + b.velocity.x, y: b.position.y + b.velocity.y}}
+        else
           b
+        end
       end)
 
     %{state | bullets: bullets}
   end
 
-  # --- BoundarySystem ---
+  # --- Remove Offscreen Bullets ---
 
-  defp boundary_system(state) do
-    {bullets, new_explosions} =
-      Enum.reduce(state.bullets, {[], []}, fn b, {bs, exps} ->
-        {_x, y} = b.position
-        {_w, h} = b.size
-
+  defp remove_offscreen_bullets(state) do
+    {kept, explosions} =
+      Enum.reduce(state.bullets, {[], []}, fn b, {kept, exps} ->
         cond do
-          y <= 0 -> {bs, [explode(b) | exps]}
-          y + h >= @canvas_height -> {bs, [explode(b) | exps]}
-          true -> {[b | bs], exps}
+          b.position.y <= 0 -> {kept, [explode(b) | exps]}
+          b.position.y + b.size.h >= @canvas_height -> {kept, [explode(b) | exps]}
+          true -> {[b | kept], exps}
         end
       end)
 
-    %{state | bullets: Enum.reverse(bullets), explosions: state.explosions ++ new_explosions}
+    %{state | bullets: Enum.reverse(kept), explosions: state.explosions ++ explosions}
   end
 
-  # --- CollisionSystem ---
+  # --- Check Bullet Hits ---
 
-  defp collision_system(state) do
-    {bullets, enemies, explosions} =
-      Enum.reduce(state.bullets, {[], state.enemies, []}, fn bullet, {bs, es, exps} ->
-        case bullet.owner do
-          :player ->
-            case find_hit_enemy(bullet, es) do
-              nil ->
-                {[bullet | bs], es, exps}
+  defp check_bullet_hits(state) do
+    {player_bullets, enemy_bullets} = Enum.split_with(state.bullets, &(&1.owner == :player))
 
-              hit_index ->
-                hit_enemy = Enum.at(es, hit_index)
-                new_enemies = List.delete_at(es, hit_index)
-                {bs, new_enemies, [explode(bullet), explode(hit_enemy) | exps]}
-            end
+    {surviving_player_bullets, enemies, hit_explosions} =
+      resolve_player_bullet_hits(player_bullets, state.enemies)
 
-          :enemy ->
-            if Map.has_key?(state.player, :health) and rects_overlap?(bullet, state.player) do
-              {bs, es, [explode(bullet) | exps]}
-            else
-              {[bullet | bs], es, exps}
-            end
-        end
-      end)
+    {surviving_enemy_bullets, player_hit_explosions} =
+      resolve_enemy_bullet_hits(enemy_bullets, state.player)
 
-    %{state | bullets: Enum.reverse(bullets), enemies: enemies, explosions: state.explosions ++ explosions}
+    %{
+      state
+      | bullets: surviving_player_bullets ++ surviving_enemy_bullets,
+        enemies: enemies,
+        explosions: state.explosions ++ hit_explosions ++ player_hit_explosions
+    }
   end
 
-  defp find_hit_enemy(bullet, enemies) do
-    Enum.find_index(enemies, fn e ->
-      Map.has_key?(e, :health) and rects_overlap?(bullet, e)
+  defp resolve_player_bullet_hits(bullets, enemies) do
+    Enum.reduce(bullets, {[], enemies, []}, fn bullet, {kept, es, exps} ->
+      case Enum.find_index(es, &rects_overlap?(bullet, &1)) do
+        nil ->
+          {[bullet | kept], es, exps}
+
+        hit_index ->
+          hit_enemy = Enum.at(es, hit_index)
+          {kept, List.delete_at(es, hit_index), [explode(bullet), explode(hit_enemy) | exps]}
+      end
+    end)
+  end
+
+  defp resolve_enemy_bullet_hits(bullets, player) do
+    Enum.reduce(bullets, {[], []}, fn bullet, {kept, exps} ->
+      if rects_overlap?(bullet, player) do
+        {kept, [explode(bullet) | exps]}
+      else
+        {[bullet | kept], exps}
+      end
     end)
   end
 
   defp rects_overlap?(a, b) do
-    {ax, ay} = a.position
-    {aw, ah} = a.size
-    {bx, by} = b.position
-    {bw, bh} = b.size
-
-    ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+    a.position.x < b.position.x + b.size.w and
+      a.position.x + a.size.w > b.position.x and
+      a.position.y < b.position.y + b.size.h and
+      a.position.y + a.size.h > b.position.y
   end
 
   # --- Explosions ---
@@ -311,7 +308,7 @@ defmodule SpaceShoot.Game do
     }
   end
 
-  defp explosion_system(state) do
+  defp animate_explosions(state) do
     explosions =
       state.explosions
       |> Enum.map(&tick_explosion/1)
@@ -340,21 +337,16 @@ defmodule SpaceShoot.Game do
   # --- Rendering ---
 
   def render_sprites(state) do
-    all =
-      [state.player | state.enemies] ++ state.bullets ++ state.explosions
-
+    all = [state.player | state.enemies] ++ state.bullets ++ state.explosions
     Enum.map(all, &sprite_to_render/1)
   end
 
   defp sprite_to_render(entity) do
-    {x, y} = entity.position
-    {w, h} = entity.size
-
     %{
-      x: round(x),
-      y: round(y),
-      width: w,
-      height: h,
+      x: round(entity.position.x),
+      y: round(entity.position.y),
+      width: entity.size.w,
+      height: entity.size.h,
       rotation: Map.get(entity, :rotation, 0.0),
       image: entity.sprite.image,
       sx: entity.sprite.sx,
@@ -366,7 +358,7 @@ defmodule SpaceShoot.Game do
 
   # --- Helpers ---
 
-  defp clamp(val, min, max) do
-    val |> max(min) |> min(max)
+  defp clamp(value, lower, upper) do
+    value |> max(lower) |> min(upper)
   end
 end
