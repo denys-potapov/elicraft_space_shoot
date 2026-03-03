@@ -66,13 +66,21 @@ defmodule SpaceShootWeb.WorkspaceLive do
           </button>
         </div>
 
-        <div
-          id="blockly-workspace"
-          phx-hook=".BlocklyWorkspace"
-          phx-update="ignore"
-          data-workspace={@workspace_json}
-          class={["w-full min-h-[480px] border border-base-300 rounded-lg"]}
-        >
+        <div class={["flex gap-4"]}>
+          <div
+            id="blockly-workspace"
+            phx-hook=".BlocklyWorkspace"
+            phx-update="ignore"
+            data-workspace={@workspace_json}
+            class={["flex-1 min-h-[480px] border border-base-300 rounded-lg"]}
+          >
+          </div>
+
+          <iframe
+            src={~p"/game"}
+            class={["w-[820px] min-h-[480px] border border-base-300 rounded-lg"]}
+          >
+          </iframe>
         </div>
       </div>
     </Layouts.app>
