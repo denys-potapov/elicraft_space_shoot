@@ -6,14 +6,12 @@ defmodule SpaceShootWeb.GameLive do
   @tick_ms 5
 
   def mount(_params, _session, socket) do
-    game_id = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    Process.put(:game_state, Game.initial_state())
-    {:ok, assign(socket, game_id: game_id)}
-  end
+    if connected?(socket) do
+      :timer.send_interval(@tick_ms, self(), :tick)
+    end
 
-  def handle_event("channel_ready", _params, socket) do
-    :timer.send_interval(@tick_ms, self(), :tick)
-    {:noreply, socket}
+    Process.put(:game_state, Game.initial_state())
+    {:ok, socket}
   end
 
   def handle_event("keydown", %{"key" => key}, socket) do
@@ -31,13 +29,7 @@ defmodule SpaceShootWeb.GameLive do
     Process.put(:game_state, new_state)
     sprites = Game.render_sprites(new_state)
 
-    SpaceShootWeb.Endpoint.broadcast(
-      "game:#{socket.assigns.game_id}",
-      "render_frame",
-      %{sprites: sprites}
-    )
-
-    {:noreply, socket}
+    {:noreply, push_event(socket, "render_frame", %{sprites: sprites})}
   end
 
   def render(assigns) do
@@ -47,7 +39,6 @@ defmodule SpaceShootWeb.GameLive do
         id="game-canvas"
         phx-hook=".GameCanvas"
         phx-update="ignore"
-        data-game-id={@game_id}
         class="border border-base-300 rounded-lg mx-auto block w-[800px] h-[600px] overflow-hidden"
       >
       </div>
@@ -77,16 +68,9 @@ defmodule SpaceShootWeb.GameLive do
           this.textureCache = {};
           this.spritePool = [];
 
-          // Channel setup
-          const gameId = this.el.dataset.gameId;
-          this.channel = window.liveSocket.socket.channel("game:" + gameId, {});
-          this.channel.on("render_frame", ({sprites}) => {
+          this.handleEvent("render_frame", ({sprites}) => {
             this._updateSprites(sprites);
           });
-          this.channel.join()
-            .receive("ok", () => {
-              this.pushEvent("channel_ready", {});
-            });
 
           // Keyboard
           this._onKeyDown = (e) => {
@@ -152,7 +136,6 @@ defmodule SpaceShootWeb.GameLive do
 
         destroyed() {
           if (this.pixiApp) { this.pixiApp.destroy(true); }
-          if (this.channel) { this.channel.leave(); }
           window.removeEventListener("keydown", this._onKeyDown);
           window.removeEventListener("keyup", this._onKeyUp);
         }
