@@ -2,6 +2,7 @@ defmodule SpaceShootWeb.WorkspaceLive do
   use SpaceShootWeb, :live_view
 
   alias SpaceShoot.Workspace
+  alias SpaceShootWeb.GameCanvasComponent
 
   @default_workspace_id "repeat_loop"
 
@@ -87,7 +88,6 @@ defmodule SpaceShootWeb.WorkspaceLive do
         <div
           id="split-container"
           phx-hook=".SplitPanel"
-          phx-update="ignore"
           class={["flex flex-1 min-w-0 h-full"]}
         >
           <%!-- Middle: Blockly workspace --%>
@@ -95,6 +95,7 @@ defmodule SpaceShootWeb.WorkspaceLive do
             <div
               id="blockly-workspace"
               phx-hook=".BlocklyWorkspace"
+              phx-update="ignore"
               data-workspace={@workspace_json}
               class={["h-full"]}
             >
@@ -111,13 +112,9 @@ defmodule SpaceShootWeb.WorkspaceLive do
           >
           </div>
 
-          <%!-- Right: Game iframe --%>
+          <%!-- Right: Game canvas --%>
           <div id="split-right" style="width:820px" class={["shrink-0 h-full"]}>
-            <iframe
-              src={~p"/game"}
-              class={["w-full h-full"]}
-            >
-            </iframe>
+            <.live_component module={GameCanvasComponent} id="game" />
           </div>
         </div>
       </div>
