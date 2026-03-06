@@ -208,6 +208,12 @@ defmodule SpaceShootWeb.WorkspaceLive do
             }
           });
 
+          // Resize Blockly when container changes size
+          this._resizeObserver = new ResizeObserver(() => {
+            Blockly.svgResize(this.workspace);
+          });
+          this._resizeObserver.observe(this.el);
+
           // Handle save button
           const saveBtn = document.getElementById("save-workspace");
           this._onSave = () => {
@@ -218,6 +224,7 @@ defmodule SpaceShootWeb.WorkspaceLive do
         },
 
         destroyed() {
+          if (this._resizeObserver) this._resizeObserver.disconnect();
           const saveBtn = document.getElementById("save-workspace");
           if (saveBtn) saveBtn.removeEventListener("click", this._onSave);
           if (this.workspace) this.workspace.dispose();
