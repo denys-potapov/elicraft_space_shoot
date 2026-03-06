@@ -3,7 +3,7 @@ defmodule SpaceShootWeb.GameLive do
 
   alias SpaceShoot.Game
 
-  @tick_ms 5
+  @tick_ms 16
 
   def mount(_params, _session, socket) do
     if connected?(socket) do

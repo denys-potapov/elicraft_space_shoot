@@ -44,43 +44,81 @@ defmodule SpaceShootWeb.WorkspaceLive do
 
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
-      <div class={["flex flex-col gap-4"]}>
-        <div class={["flex items-center gap-4"]}>
-          <form phx-change="select_workspace">
-            <select
-              name="workspace"
-              class={["select select-bordered"]}
+    <Layouts.app flash={@flash} fullwidth>
+      <div class={["flex h-full"]}>
+        <%!-- Left sidebar: modules list + toolbar --%>
+        <aside class={["w-56 shrink-0 flex flex-col border-r border-base-300 bg-base-200/50"]}>
+          <div class={["flex items-center gap-1 px-3 py-2 border-b border-base-300"]}>
+            <span class={["text-sm font-semibold flex-1"]}>Modules</span>
+            <button
+              id="save-workspace"
+              title="Save"
+              class={["btn btn-ghost btn-sm btn-square"]}
             >
+              <.icon name="hero-arrow-down-tray" class="size-4" />
+            </button>
+            <button
+              title="Open"
+              class={["btn btn-ghost btn-sm btn-square"]}
+            >
+              <.icon name="hero-folder-open" class="size-4" />
+            </button>
+          </div>
+          <nav class={["flex-1 overflow-y-auto"]}>
+            <ul class={["menu menu-sm"]}>
               <%= for {label, id} <- @workspace_options do %>
-                <option value={id} selected={id == @selected_workspace}>{label}</option>
+                <li>
+                  <button
+                    type="button"
+                    phx-click="select_workspace"
+                    phx-value-workspace={id}
+                    class={[id == @selected_workspace && "font-bold bg-base-300"]}
+                  >
+                    <.icon name="hero-cube" class="size-4 opacity-60" />
+                    {label}
+                  </button>
+                </li>
               <% end %>
-            </select>
-          </form>
+            </ul>
+          </nav>
+        </aside>
 
-          <button
-            id="save-workspace"
-            class={["btn btn-primary"]}
-          >
-            Save
-          </button>
-        </div>
+        <%!-- Middle + Splitter + Right: managed by splitter hook --%>
+        <div
+          id="split-container"
+          phx-hook=".SplitPanel"
+          phx-update="ignore"
+          class={["flex flex-1 min-w-0 h-full"]}
+        >
+          <%!-- Middle: Blockly workspace --%>
+          <div id="split-left" class={["flex-1 min-w-0 h-full"]}>
+            <div
+              id="blockly-workspace"
+              phx-hook=".BlocklyWorkspace"
+              data-workspace={@workspace_json}
+              class={["h-full"]}
+            >
+            </div>
+          </div>
 
-        <div class={["flex gap-4"]}>
+          <%!-- Splitter handle --%>
           <div
-            id="blockly-workspace"
-            phx-hook=".BlocklyWorkspace"
-            phx-update="ignore"
-            data-workspace={@workspace_json}
-            class={["flex-1 min-h-[480px] border border-base-300 rounded-lg"]}
+            id="split-handle"
+            class={[
+              "w-1.5 shrink-0 cursor-col-resize bg-base-300",
+              "hover:bg-primary/40 active:bg-primary/60 transition-colors"
+            ]}
           >
           </div>
 
-          <iframe
-            src={~p"/game"}
-            class={["w-[820px] min-h-[480px] border border-base-300 rounded-lg"]}
-          >
-          </iframe>
+          <%!-- Right: Game iframe --%>
+          <div id="split-right" style="width:820px" class={["shrink-0 h-full"]}>
+            <iframe
+              src={~p"/game"}
+              class={["w-full h-full"]}
+            >
+            </iframe>
+          </div>
         </div>
       </div>
     </Layouts.app>
@@ -188,6 +226,57 @@ defmodule SpaceShootWeb.WorkspaceLive do
           if (this.workspace) this.workspace.dispose();
         },
       };
+    </script>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".SplitPanel">
+      export default {
+        mounted() {
+          const handle = document.getElementById("split-handle");
+          const right = document.getElementById("split-right");
+          const container = this.el;
+          let dragging = false;
+
+          const onMouseDown = (e) => {
+            e.preventDefault();
+            dragging = true;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            // Prevent iframe from stealing mouse events
+            right.style.pointerEvents = "none";
+          };
+
+          const onMouseMove = (e) => {
+            if (!dragging) return;
+            const containerRect = container.getBoundingClientRect();
+            const newRightWidth = containerRect.right - e.clientX - handle.offsetWidth / 2;
+            const clamped = Math.max(200, Math.min(newRightWidth, containerRect.width - 200));
+            right.style.width = clamped + "px";
+            // Tell Blockly to recalculate its size
+            window.dispatchEvent(new Event("resize"));
+          };
+
+          const onMouseUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+            right.style.pointerEvents = "";
+          };
+
+          handle.addEventListener("mousedown", onMouseDown);
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+
+          this._cleanup = () => {
+            handle.removeEventListener("mousedown", onMouseDown);
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          };
+        },
+
+        destroyed() {
+          if (this._cleanup) this._cleanup();
+        }
+      }
     </script>
     """
   end
