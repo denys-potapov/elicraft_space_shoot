@@ -4,13 +4,15 @@ defmodule SpaceShootWeb.GameLive do
   alias SpaceShootWeb.GameCanvasComponent
 
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    {:ok, assign(socket, connected: connected?(socket))}
   end
 
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} fullwidth>
-      <.live_component module={GameCanvasComponent} id="game" />
+      <div class={["h-full bg-gray-800"]}>
+        <.live_component module={GameCanvasComponent} id="game" connected={@connected} />
+      </div>
     </Layouts.app>
     """
   end

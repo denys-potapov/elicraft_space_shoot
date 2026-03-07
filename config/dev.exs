@@ -45,7 +45,7 @@ config :space_shoot, SpaceShootWeb.Endpoint,
 # Reload browser tabs when matching files change.
 config :space_shoot, SpaceShootWeb.Endpoint,
   live_reload: [
-    web_console_logger: true,
+    web_console_logger: false,
     patterns: [
       # Static assets, except user uploads
       ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$",
