@@ -2,9 +2,10 @@ defmodule SpaceShootWeb.WorkspaceLive do
   use SpaceShootWeb, :live_view
 
   alias SpaceShoot.Workspace
+  alias SpaceShoot.BlocklyToElixir
   alias SpaceShootWeb.GameCanvasComponent
 
-  @default_workspace_id "repeat_loop"
+  @default_workspace_id "empty_handler"
 
   def mount(_params, _session, socket) do
     workspace_json =
@@ -15,7 +16,9 @@ defmodule SpaceShootWeb.WorkspaceLive do
       |> assign(
         workspace_options: Workspace.list_workspaces(),
         selected_workspace: @default_workspace_id,
-        workspace_json: workspace_json
+        workspace_json: workspace_json,
+        view: :blocks,
+        elixir_code: ""
       )
 
     {:ok, socket}
@@ -30,6 +33,20 @@ defmodule SpaceShootWeb.WorkspaceLive do
       |> push_event("load_workspace", %{workspace: workspace_json})
 
     {:noreply, socket}
+  end
+
+  def handle_event("set_view", %{"view" => view}, socket) do
+    {:noreply, assign(socket, view: String.to_existing_atom(view))}
+  end
+
+  def handle_event("blockly_changed", %{"workspace" => workspace_json}, socket) do
+    elixir_code =
+      case Jason.decode(workspace_json) do
+        {:ok, workspace} -> BlocklyToElixir.convert(workspace)
+        {:error, _} -> socket.assigns.elixir_code
+      end
+
+    {:noreply, assign(socket, elixir_code: elixir_code)}
   end
 
   def handle_event("save", %{"workspace" => workspace_json}, socket) do
@@ -90,15 +107,34 @@ defmodule SpaceShootWeb.WorkspaceLive do
           phx-hook=".SplitPanel"
           class={["flex flex-1 min-w-0 h-full"]}
         >
-          <%!-- Middle: Blockly workspace --%>
-          <div id="split-left" class={["flex-1 min-w-0 h-full"]}>
-            <div
-              id="blockly-workspace"
-              phx-hook=".BlocklyWorkspace"
-              phx-update="ignore"
-              data-workspace={@workspace_json}
-              class={["h-full"]}
-            >
+          <%!-- Middle: Blockly workspace + code view --%>
+          <div id="split-left" class={["flex-1 min-w-0 h-full flex flex-col"]}>
+            <div class={["flex items-center gap-1 px-3 py-1 border-b border-base-300 bg-base-200/50 shrink-0"]}>
+              <button
+                type="button"
+                phx-click="set_view"
+                phx-value-view="blocks"
+                class={["btn btn-xs", @view == :blocks && "btn-primary", @view != :blocks && "btn-ghost"]}
+              >Blocks</button>
+              <button
+                type="button"
+                phx-click="set_view"
+                phx-value-view="code"
+                class={["btn btn-xs", @view == :code && "btn-primary", @view != :code && "btn-ghost"]}
+              >Code</button>
+            </div>
+            <div class={["flex-1 min-h-0 relative"]}>
+              <div
+                id="blockly-workspace"
+                phx-hook=".BlocklyWorkspace"
+                phx-update="ignore"
+                data-workspace={@workspace_json}
+                class={["absolute inset-0", @view != :blocks && "hidden"]}
+              >
+              </div>
+              <%= if @view == :code do %>
+                <pre class={["absolute inset-0 overflow-auto p-4 text-sm font-mono bg-base-100"]}>{@elixir_code}</pre>
+              <% end %>
             </div>
           </div>
 
@@ -182,6 +218,15 @@ defmodule SpaceShootWeb.WorkspaceLive do
                   name: "Functions",
                   custom: "PROCEDURE",
                 },
+                {
+                  kind: "category",
+                  name: "Sprite",
+                  colour: "160",
+                  contents: [
+                    { kind: "block", type: "sprite_handler" },
+                    { kind: "block", type: "sprite_action" },
+                  ],
+                },
               ],
             },
           });
@@ -208,6 +253,14 @@ defmodule SpaceShootWeb.WorkspaceLive do
             }
           });
 
+          // Push structural changes to server
+          this._changeListener = (e) => {
+            if (e.isUiEvent) return;
+            const state = Blockly.serialization.workspaces.save(this.workspace);
+            this.pushEvent("blockly_changed", { workspace: JSON.stringify(state) });
+          };
+          this.workspace.addChangeListener(this._changeListener);
+
           // Resize Blockly when container changes size
           this._resizeObserver = new ResizeObserver(() => {
             Blockly.svgResize(this.workspace);
@@ -225,6 +278,7 @@ defmodule SpaceShootWeb.WorkspaceLive do
 
         destroyed() {
           if (this._resizeObserver) this._resizeObserver.disconnect();
+          if (this._changeListener) this.workspace.removeChangeListener(this._changeListener);
           const saveBtn = document.getElementById("save-workspace");
           if (saveBtn) saveBtn.removeEventListener("click", this._onSave);
           if (this.workspace) this.workspace.dispose();
