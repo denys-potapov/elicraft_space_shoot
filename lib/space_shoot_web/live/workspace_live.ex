@@ -124,13 +124,15 @@ defmodule SpaceShootWeb.WorkspaceLive do
               >Code</button>
             </div>
             <div class={["flex-1 min-h-0 relative"]}>
-              <div
-                id="blockly-workspace"
-                phx-hook=".BlocklyWorkspace"
-                phx-update="ignore"
-                data-workspace={@workspace_json}
-                class={["absolute inset-0", @view != :blocks && "hidden"]}
-              >
+              <div class={["absolute inset-0", @view != :blocks && "hidden"]}>
+                <div
+                  id="blockly-workspace"
+                  phx-hook=".BlocklyWorkspace"
+                  phx-update="ignore"
+                  data-workspace={@workspace_json}
+                  class="absolute inset-0"
+                >
+                </div>
               </div>
               <%= if @view == :code do %>
                 <pre class={["absolute inset-0 overflow-auto p-4 text-sm font-mono bg-base-100"]}>{@elixir_code}</pre>
